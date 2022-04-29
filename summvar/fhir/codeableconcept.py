@@ -8,7 +8,7 @@ class CodeableConcept:
 
     @property
     def value(self):
-        code = self.code
+        code = self.coding[0]['code']
         if code is None:
             return self.text
         return code

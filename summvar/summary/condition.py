@@ -5,6 +5,9 @@ Provide support for summarizing conditions over a group of patients
 from collections import defaultdict
 from summvar.fhir.codeableconcept import CodeableConcept
 from ncpi_fhir_plugin.common import constants
+from summvar.summary.constants import common_terms
+from summvar.fhir import MetaTag, _tag_code
+from summvar.summary import _VARDEF_SYSTEM, _VARDEF_PROFILE
 
 from pprint import pformat
 import pdb
@@ -34,14 +37,18 @@ class ConditionSummary:
         self.total_count = total_count      # total number of group members
         self.status_refs = defaultdict(set) # Present => N, Absent => N
 
-        for status in code_lkup.keys():
-            self.status_refs[status] = set()
+        # We no longer put negatives inside the conditions
+        #for status in code_lkup.keys():
+        #    self.status_refs[status] = set()
 
     def add_reference(self, resource):
         # Not sure if everyone is doing both interpretation and valueCC
-        cc = CodeableConcept(resource['verificationStatus'])
+        if 'verificationStatus' in resource:
+            cc = CodeableConcept(resource['verificationStatus'])
+            status = cc.value
+        else:
+            status = 'confirmed'
 
-        status = cc.value
         if status in status_lkup:
             status = status_lkup[status]
         self.status_refs[status].add(resource['subject']['reference'])
@@ -54,21 +61,23 @@ class ConditionSummary:
             value = value[0:150]
         entity = {
             'resourceType': 'Observation',
+            'meta': {
+                'profile': [
+                    _VARDEF_PROFILE
+                ],
+                'tag': MetaTag()
+            },
             'identifier': [ {
-                'system': 'https://ncpi-fhir.github.io/variable-definition',
+                'system': _VARDEF_SYSTEM,
                 'value': f"{self.name_prefix}-{value}"
             }, {
                 'system': f'{constants.NCPI_DOMAIN}/study_group',
                 'value': self.name_prefix
             }],
             'status': 'final',
-            'code': {
-                'coding': [{
-                    'system': 'https://ncpi-fhir.github.io/ncpi-code-systems',
-                    'code': 'Summary',
-                    'display': "Variable Summary"
-                }],
-                'text': "Variable Summary"
+            'code':{
+                'coding': [common_terms['SUMMARY_REPORT']],
+                'text': common_terms['SUMMARY_REPORT']['display']
             },
             'subject': {
                 'reference': self.group_ref
@@ -100,7 +109,8 @@ class ConditionSummary:
                     },
                     'valueInteger': count
                 }
-            entity['component'].append(component)
+            if len(self.status_refs) > 1:
+                entity['component'].append(component)
         
         component = {
             'code': {
@@ -130,12 +140,17 @@ class ConditionSummary:
 
         return entity
 
-def summarize(client, name_prefix, patient_refs, group_ref):
+def summarize(client, name_prefix, patient_refs, group_ref, profile=None):
     observations = {}
     for ref in patient_refs:
         #pdb.set_trace()
         entry_count = 0
-        response = client.get(f"Condition?subject={ref}&_profile={ncpi_phenotype}")
+        query = f"Condition?subject={ref}"
+        if _tag_code is not None:
+            query += f"&_tag={_tag_code}"
+        if profile is not None:
+            query += f"&_profile={profile}"
+        response = client.get(query)
         if response.success():
             for entry in response.entries:
                 resource = entry['resource']
@@ -146,8 +161,7 @@ def summarize(client, name_prefix, patient_refs, group_ref):
                     observations[code] = ConditionSummary(cc, name_prefix, group_ref, total_count = len(patient_refs))
 
                 observations[code].add_reference(resource)
-        if entry_count > 0:
-            print(f"{entry_count} - Condition?subject={ref}&_profile={ncpi_phenotype}")
+
 
     summaries = []
     for code in observations.keys():

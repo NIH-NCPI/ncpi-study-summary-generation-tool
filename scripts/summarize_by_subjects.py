@@ -22,6 +22,7 @@ from ncpi_fhir_plugin.common import constants
 from argparse import ArgumentParser, FileType
 from summvar.fhir.research_study import pull_studies, ResearchStudy
 from summvar.fhir.group import Group
+from summvar.fhir import InitMetaTag,MetaTag
 from summarize_group import summarize_group
 from summvar.summary.condition import summarize as summarize_conditions
 from pprint import pformat
@@ -38,10 +39,11 @@ varsum_code = {
 }
 
 if __name__ == '__main__':
-
+    # Identify the hosts we can choose from
     hostsfile = Path(getenv("FHIRHOSTS", 'fhir_hosts'))
     config = safe_load(hostsfile.open("rt"))
     env_options = config.keys()
+
     parser = ArgumentParser()
     parser.add_argument("-s", 
                 "--source-env", 
@@ -59,6 +61,7 @@ if __name__ == '__main__':
                 help="Optional study to summarize over.")
 
     args = parser.parse_args()
+    
     fhir_host = FhirClient(config[args.source_env])
     dest_host = fhir_host
 
@@ -92,6 +95,7 @@ if __name__ == '__main__':
         print(f"Working on the study, {name}")
         #pdb.set_trace()
         study = ResearchStudy(fhir_host, identifier=name)
+        InitMetaTag(system=study.identifier['system'], code=study.identifier['value'])
         patient_refs = study.get_patients()
 
         group_name = study.title

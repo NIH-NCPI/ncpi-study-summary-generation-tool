@@ -2,6 +2,8 @@
 Abstraction for the Fhir Observation holding the summary data
 """
 
+from summvar.fhir import MetaTag
+
 varsum_code = {
     'coding': [{
         'system': 'https://ncpi-fhir.github.io/ncpi-code-systems',
@@ -34,6 +36,9 @@ class SummaryObservation:
     def objectify(self):
         entity = {
             'resourceType': self.resourceType, 
+            'meta': {
+                'tag': MetaTag()
+            },
             'identifier': [{
                 'system': 'https://ncpi-fhir.github.io/variable-definition',
                 'value': self.name

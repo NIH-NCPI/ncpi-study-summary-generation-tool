@@ -29,6 +29,7 @@ from ncpi_fhir_client.fhir_client import FhirClient
 from argparse import ArgumentParser, FileType
 from summvar.fhir.research_study import pull_studies, ResearchStudy
 from summvar.fhir.group import Group
+from summvar.fhir import InitMetaTag,MetaTag
 from summarize_group import summarize_group
 from summvar.summary.condition import summarize as summarize_conditions
 from pprint import pformat
@@ -69,7 +70,11 @@ if __name__ == '__main__':
         all_studies = []
         for index in range(len(studies)):
             study = studies[index]
-            print(f"{index + 1} - {study.title} with {study.count} Groups")
+            title = study.title
+
+            if title == "TBD":
+                title = study.identifier['value']
+            print(f"{index + 1} - {title} with {study.count} Groups")
             all_studies.append(study.reference)
         
         print("\nWhich group would you like to summarize (type index or all): ")
@@ -88,6 +93,7 @@ if __name__ == '__main__':
     for name in args.study:
         print(f"Working on the group, {name}")
         study = ResearchStudy(fhir_host, identifier=name)
+        InitMetaTag(system=study.identifier['system'], code=study.identifier['value'])
         sdest = None
         #pdb.set_trace()
 

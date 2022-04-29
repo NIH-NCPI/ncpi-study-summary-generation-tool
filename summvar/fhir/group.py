@@ -4,13 +4,20 @@
 
 from pprint import pformat
 from copy import deepcopy
+import sys
+from rich import pretty
 
 from summvar import MissingIdentifier, BadIdentifier
+from summvar.fhir import MetaTag
 import pdb
+
+pretty.install()
+
 class Group:
     def __init__(self, client, resource=None, identifier=None):
         self.client = client
         self.resource_type = "Group"
+        self.remote_ref = None
 
         if resource is None:
             if identifier is None:
@@ -24,18 +31,69 @@ class Group:
         self.identifier = resource['identifier'][0]
         self.p_refs = []
 
+        # We'll keep only the identifiers in a set for fast lookup
+        self.p_identifiers = None
+
         self.id = None
         if 'id' in resource:
             self.id = resource['id']
         if 'member' in resource:
             for entity in resource['member']:
                 self.p_refs.append(entity['entity']['reference'])
-    
-    def objectify(self, min=False):
-        obj = { }
 
-        for prop in ['resourceType', 'name', 'identifier', 'type', 'actual']:
-            obj[prop] = deepcopy(self.resource[prop])
+    def is_member(self, patient_ref):
+        if self.p_identifiers is None:
+            self.p_identifiers = set()
+
+            for p in self.p_refs:
+                self.p_identifiers.add(p.split("/")[-1])
+
+        pid = patient_ref = patient_ref.split("/")[-1]
+
+        return pid in self.p_identifiers
+
+    def load(self, remote_host):
+        resource = self.objectify(min=True)
+        response = remote_host.post(resource['resourceType'], resource, identifier=self.dest_identifier)
+        if response['status_code'] > 299:
+            print(resource)
+            resource
+            print(response['status_code'])
+            print(response['response'])
+            sys.exit(1)
+        response = response['response']
+
+        self.remote_ref = f"{self.resource_type}/{response['id']}"
+        print(f"\tGroup: {self.remote_ref}")
+        return response
+
+    def remote_reference(self, remote_host):
+        #pdb.set_trace()
+        if self.remote_ref is None:
+            resource = self.load(remote_host)
+            self.remote_ref = f"{self.resource_type}/{resource['id']}"
+        
+        return self.remote_ref
+    
+    def objectify(self, min=False, source=False):
+        obj = { 
+            'meta': {
+                'profile': [
+                    "https://ncpi-fhir.github.io/ncpi-fhir-study-summary-ig/StructureDefinition/study-summary-group"
+                ],
+                'tag': MetaTag()
+            }
+        }
+
+        idnt = self.build_dest_identifier()
+        if source:
+            idnt = self.resource['identifier']
+        obj['identifier'] = idnt
+        obj['actual'] = True
+
+        for prop in ['resourceType', 'name', 'type']:
+            if prop in self.resource:
+                obj[prop] = deepcopy(self.resource[prop])
         if 'member' in self.resource:
             obj['quantity'] = len(self.resource['member'])
 
@@ -50,14 +108,32 @@ class Group:
 
     @property
     def name(self):
-        return self.resource['name']
+        if 'name' in self.resource:
+            return self.resource['name']
+        else:
+            return self.resource['identifier'][0]['value']
+
+    @property
+    def source_identifier(self):
+        idnt = self.resource['identifier'][0]
+        return f"{idnt['system']}|{idnt['value']}"
+
+    def build_dest_identifier(self):
+        idnt = deepcopy(self.resource['identifier'])
+        idnt[0]['system'] += '-summary'
+        idnt[0]['value']+= '-summary'
+        return idnt
+
+    @property
+    def dest_identifier(self):
+        idnt = self.build_dest_identifier()[0]
+        return f"{idnt['system']}|{idnt['value']}"
 
     @property
     def reference(self):
         if self.id is None:
             pdb.set_trace()
         return f"{self.resource_type}/{self.id}"
-
 
     def pull_details(self, identifier):
         url = f"{self.resource_type}?identifier={identifier}"

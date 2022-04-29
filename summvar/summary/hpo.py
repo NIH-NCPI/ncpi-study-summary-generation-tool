@@ -4,6 +4,7 @@ Provide support for summarizing HPO Observations over a group of patients
 
 from collections import defaultdict
 from summvar.fhir.codeableconcept import CodeableConcept
+from summvar.fhir import MetaTag
 import pdb
 from pprint import pformat
 
@@ -48,6 +49,9 @@ class ObservationSummary:
     def to_json(self):
         entity = {
             'resourceType': 'Observation',
+            'meta': {
+                'tag': MetaTag()
+            },
             'identifier': [ {
                 'system': 'https://ncpi-fhir.github.io/variable-definition',
                 'value': f"{self.name_prefix}-{self.code.value}"

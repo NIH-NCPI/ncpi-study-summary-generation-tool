@@ -3,6 +3,7 @@ Provide support for summarizing demographics over a group of patients
 """
 from collections import defaultdict
 from summvar.fhir.codeableconcept import CodeableConcept
+from summvar.fhir import MetaTag
 from ncpi_fhir_plugin.common import constants
 from pprint import pformat
 import pdb
@@ -68,6 +69,9 @@ class RaceSummary:
     def objectify(self):
         entity = {
             'resourceType': 'Observation',
+            'meta': {
+                'tag': MetaTag()
+            },
             'identifier': [ {
                 'system': f"{constants.NCPI_DOMAIN}/variable-definition",
                 'value': f"{self.name_prefix}-{self.code.display}"
@@ -169,6 +173,9 @@ class EthSummary:
     def objectify(self):
         entity = {
             'resourceType': 'Observation',
+            'meta': {
+                'tag': MetaTag()
+            },
             'identifier': [ {
                 'system': f'{constants.NCPI_DOMAIN}/variable-definition',
                 'value': f"{self.name_prefix}-{self.code.display}"
@@ -285,6 +292,9 @@ class GenderSummary:
     def objectify(self):
         entity = {
             'resourceType': 'Observation',
+            'meta': {
+                'tag': MetaTag()
+            },
             'identifier': [ {
                 'system': f'{constants.NCPI_DOMAIN}/variable-definition',
                 'value': f"{self.name_prefix}-{self.code.display}"

@@ -28,6 +28,7 @@ from yaml import safe_load
 from ncpi_fhir_client.fhir_client import FhirClient
 from argparse import ArgumentParser, FileType
 from summvar.fhir.group import pull_groups, Group
+from summvar.fhir import InitMetaTag,MetaTag,has_no_study
 from summvar.summary.condition import summarize as summarize_conditions
 from summvar.summary.patient import summarize as summarize_demo
 from pprint import pformat

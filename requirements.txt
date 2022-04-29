@@ -1,1 +1,2 @@
-fhir_walk >= 0.1.0
+ncpi_fhir_client >= 0.1.0
+rich
