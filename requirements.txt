@@ -1,2 +1,16 @@
-ncpi_fhir_client >= 0.1.0
+# Library used to authenticate and communicate with FHIR
+ncpi_fhir_client @ git+https://github.com/ncpi-fhir/ncpi-fhir-client
+
+# Help make output a bit clearer
 rich
+
+#attrdict==2.0.1
+firecloud
+
+# Requirements necessary for reading/writing google sheets
+oauth2client
+PyOpenSSL
+gspread
+
+# Required for pulling study information from dbgap
+xmltodict
