@@ -27,4 +27,5 @@ add_common_term("RANGE", NCIT, "C2348147", "Sample Range")
 add_common_term("SUMMARY_REPORT", NCIT, "C0242482", "Summary Report")
 add_common_term("GENDER", NCIT, "C0079399", "Gender")
 add_common_term("MISSING", NCIT, "C142610", "Missing Data")
+add_common_term("INVALID", NCIT, "C3245471", "Invalid")
 

@@ -2,6 +2,7 @@
 Abstraction for FHIR research study
 """
 
+import sys
 from summvar import MissingIdentifier, BadIdentifier
 from pprint import pformat
 from copy import deepcopy

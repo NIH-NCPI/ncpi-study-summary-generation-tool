@@ -9,6 +9,7 @@ def InitMetaTag(system, code):
     _tag_system = system
     _tag_code = code
 
+
 def MetaTag():
     return [{
             "system": _tag_system,

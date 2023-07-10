@@ -8,21 +8,74 @@ from collections import defaultdict
 from summvar.fhir.codeableconcept import CodeableConcept
 from summvar.summary.constants import common_terms
 from summvar.summary.variable_summary import VariableSummary
+from summvar import fix_fieldname
 import sys
 import pdb
 
+from rich import print
+
 class QuantityVariable:
-    def __init__(self, unit, unit_code, unit_system):
+    def __init__(self, unit=None, 
+                    unit_code=None, 
+                    unit_system=None,
+                    missing_enc=set()):
         self.sum = 0
         self.count = 0
         self.min = None
         self.max = None
+        self.missing = 0
+        self.nan = 0
+        self.missing_encoding = missing_enc
 
         self.unit = unit 
         self.unit_code = unit_code
         self.unit_system = unit_system
 
+    def reset(self):
+        self.sum = 0
+        self.count = 0
+        self.min = None
+        self.max = None
+        self.missing = 0
+        self.nan = 0
+
+    def merge(self, other):
+        self.sum += other.sum
+        self.count += other.count
+        if self.min is None:
+            self.min = other.min
+        else:
+            self.min  = self.min if (other.min is None or other.min > self.min) else other.min
+        
+        if self.max is None:
+            self.max = other.max
+        else:
+            self.max = self.max if (other.max is None or other.max < self.max) else other.max
+        self.missing += other.missing
+        self.nan += other.nan
+
+    def add_value(self, value):
+        # I'm assuming this won't be properly cast
+        if value not in self.missing_encoding:
+            try:
+                val = float(value)
+                
+                # avoid accepting nan values
+                if val == val:
+                    self.add_quantity(val)
+                else:
+                    pdb.set_trace()
+                    self.missing += 1
+                    self.nan += 1
+            except:
+                pdb.set_trace()
+                self.missing += 1
+        else:
+            pdb.set_trace()
+            self.missing += 1
+
     def add_quantity(self, quantity):
+        #pdb.set_trace()
         if self.min is None or quantity < self.min:
             self.min = quantity
         if self.max is None or quantity > self.max:
@@ -32,18 +85,27 @@ class QuantityVariable:
         self.sum += quantity
 
     def mean(self):
-        rval = {
-            'value': self.sum / self.count
-        }
-        if self.unit is not None:
-            rval['unit'] = self.unit
-        
-        if self.unit_code is not None:
-            rval['code'] = self.unit_code
-        
-        if self.unit_system is not None:
-            rval['system'] = self.unit_system
-    
+        try:
+            print(f"SUM: {self.sum} / {self.count}=")
+            mean =  self.sum / self.count
+            if mean == mean:
+                print(mean)
+                rval = {
+                    'value': mean
+                }
+                if self.unit is not None:
+                    rval['unit'] = self.unit
+                
+                if self.unit_code is not None:
+                    rval['code'] = self.unit_code
+                
+                if self.unit_system is not None:
+                    rval['system'] = self.unit_system
+            else:
+                print("NAN!!!!")
+                rval = None
+        except:
+            rval = None
         return rval
 
     def add_min_max(self, resource):
@@ -69,12 +131,26 @@ class QuantityVariable:
                 resource['valueRange']['high']['system'] = self.unit_system
 
 class DefaultSummary:
-    def __init__(self, permittedDataTypes):
+    def __init__(self, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
         self.observed_data = defaultdict(int)
         self.missing = 0
         self.total_nonmissing = 0
         self.type_name = "String"
+        self.missing_encoding = missing_encoding
+
+
+    def reset(self):
+        self.observed_data = defaultdict(int)
+        self.missing = 0
+        self.total_nonmissing = 0
+
+
+    def merge(self, other):
+        for k,v in other.observed_data.items():
+            self.observed_data[k] += v
+        self.missing += other.missing
+        self.total_nonmissing += other.total_nonmissing
 
     @property 
     def missing_count(self):
@@ -87,6 +163,13 @@ class DefaultSummary:
     def get_vocabulary(self, client):
         return None
 
+    def add_value(self, value):
+        if value.strip() != "" and value not in self.missing_encoding:
+            self.observed_data[value] += 1
+            self.total_nonmissing += 1
+        else:
+            self.missing += 1
+
     def add_resource(self, resource):
         if 'valueString' in resource:
             self.observed_data[resource['valueString']] += 1
@@ -95,7 +178,7 @@ class DefaultSummary:
             self.missing += 1
 
     def summarize(self, var_summary):
-        pdb.set_trace()
+        #pdb.set_trace()
         # For these, we'll report distinct values, total non-missing and missing values
         component = {
             'code': {
@@ -128,12 +211,25 @@ class DefaultSummary:
         return obj
 
 class DateTimeSummary:
-    def __init__(self, permittedDataTypes):
+    def __init__(self, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
         self.observed_data = defaultdict(int)
         self.missing = 0
         self.total_nonmissing = 0
         self.type_name = "String"
+        self.missing_encoding = missing_encoding
+
+
+    def reset(self):
+        self.observed_data = defaultdict(int)
+        self.missing = 0
+        self.total_nonmissing = 0        
+
+    def merge(self, other):
+        for k,v in other.observed_data.items():
+            self.observed_data[k] += v
+        self.missing += other.missing
+        self.total_nonmissing += other.total_nonmissing
 
     @property 
     def missing_count(self):
@@ -145,6 +241,13 @@ class DateTimeSummary:
 
     def get_vocabulary(self, client):
         return None
+
+    def add_value(self, value):
+        if value.strip() != "" and value not in self.missing_encoding:
+            self.observed_data[value] += 1
+            self.total_nonmissing += 1
+        else:
+            self.missing += 1
 
     def add_resource(self, resource):
         if '_valueDateTime' in resource:
@@ -189,13 +292,35 @@ class DateTimeSummary:
     def update_obj(self, obj, remote_host):
         return obj
 class QuantitySummary:
-    def __init__(self, permittedDataTypes):
+    def __init__(self, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
         self.quantity = None
         self.codeableconcept = None
         self.missing = 0
         self.observations_observed = 0
+        self.invalid_values = 0
         self.type_name = "Quantity"
+        self.missing_encoding = missing_encoding
+
+
+    def reset(self):
+        self.quantity = None
+        self.codeableconcept = None
+        self.missing = 0
+        self.observations_observed = 0
+
+    def merge(self, other):
+        if self.quantity is not None:
+            if other.quantity is not None:
+                self.quantity.merge(other.quantity)
+        else:
+            self.quantity = other.quantity
+
+        if self.codeableconcept is None:
+            self.codeableconcept = other.codeableconcept
+        self.missing += other.missing
+        #self.total_nonmissing += other.total_nonmissing
+
 
     @property 
     def missing_count(self):
@@ -210,6 +335,30 @@ class QuantitySummary:
     def get_vocabulary(self, client):
         return None
 
+    def add_value(self, value):
+        if self.quantity is None:
+            self.quantity=QuantityVariable(missing_enc=self.missing_encoding)
+
+        if value not in self.missing_encoding:
+            # Try to skip invalid data
+            try:
+                v = float(value)
+                if v == v:
+                    self.quantity.add_quantity(v)
+                else:
+                    #pdb.set_trace()
+                    # I'm leaving these out since they shouldn't contribute to the 
+                    # mean. However, it is a bit misleading to see a count that 
+                    # isn't reflective of values that aren't missing. 
+                    self.missing += 1
+                    self.invalid_values += 1
+            except:
+                #pdb.set_trace()
+                self.invalid_values += 1
+        else:
+            #pdb.set_trace()
+            self.missing += 1
+
     def add_resource(self, resource):
         self.observations_observed += 1
         try:
@@ -218,13 +367,14 @@ class QuantitySummary:
                 self.codeableconcept = resource['code']
                 self.quantity = QuantityVariable(unit=quant.get('unit'), 
                                                     unit_code=quant.get('code'), 
-                                                    unit_system=quant.get('system'))
+                                                    unit_system=quant.get('system'),
+                                                    missing_enc=self.missing_encoding)
             self.quantity.add_quantity(float(quant['value']))
         except:
             self.missing += 1
 
-
     def summarize(self, var_summary):
+        #pdb.set_trace()
         if self.codeableconcept is not None:
             cc = self.codeableconcept
             if 'coding' in cc:
@@ -236,6 +386,7 @@ class QuantitySummary:
                 text = cc['code']
             else:
                 text = cc['display']
+        if self.quantity is not None:
             component = {
                 'code': {
                     'coding': [common_terms['COUNT']],
@@ -244,14 +395,17 @@ class QuantitySummary:
                 'valueInteger': self.quantity.count
             }
             var_summary['component'].append(component)
-            component = {
-                'code': {
-                    'coding': [common_terms['MEAN']],
-                    'text': common_terms['MEAN']['display']
-                },
-                'valueQuantity': self.quantity.mean()
-            }
-            var_summary['component'].append(component)
+            mean = self.quantity.mean()
+
+            if mean is not None:
+                component = {
+                    'code': {
+                        'coding': [common_terms['MEAN']],
+                        'text': common_terms['MEAN']['display']
+                    },
+                    'valueQuantity': self.quantity.mean()
+                }
+                var_summary['component'].append(component)
 
             component = {
                 'code': {
@@ -263,6 +417,17 @@ class QuantitySummary:
             if 'valueRange' in component:
                 var_summary['component'].append(component)
 
+            component = {
+                'code': {
+                    'coding': [common_terms['INVALID']],
+                    'text': common_terms['INVALID']['display']
+                },
+                'valueQuantity': {
+                    'value': self.invalid_values
+                }
+            }
+            var_summary['component'].append(component)
+
         missing = {
             'code': {
                 'coding': [common_terms['MISSING']],
@@ -271,31 +436,58 @@ class QuantitySummary:
             'valueInteger': self.missing
         }
         var_summary['component'].append(missing)
+
     def update_obj(self, obj, remote_host):
         return obj
 
 class CodeableConceptSummary:
-    def __init__(self, client, valueset_ref, permittedDataTypes):
+    def __init__(self, client, valueset_ref, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
         self.codings = {}
         self.observations = defaultdict(int)
         self.missing = 0 
         self.non_missing = 0
+        self.missing_encoding = missing_encoding
+
+        #print(valueset_ref)
+        #pdb.set_trace()
         self.valueset_ref = valueset_ref
         self.type_name = "CodeableConcept"
 
-        response = client.get(f"{valueset_ref}/$expand")
+        response = client.get(f"{valueset_ref}/$expand", except_on_error=False)
 
-        if response.success() and len(response.entries) > 0:
-            entry = response.entries[0]
+        # Google doesn't currently support the expand operation, so we have to
+        # fall back on the code system to get the values
+        if not response.success():
+            response = client.get(f"{valueset_ref}")
+            if response.success():
+                for entry in response.entries:
+                    #pdb.set_trace()
+                    for include in entry['compose']['include']:
+                        system = include['system']
+                        resp2 = client.get(f"CodeSystem?url={system}")
+                        if resp2.success():
+                            #print(resp2.entries[0])
+                            for coding in resp2.entries[0]['resource']['concept']:
+                                coding['system'] = system
+                                self.codings[coding['code']] = coding
+                                
+                                self.observations[coding['code']] = 0
+        else:
+            if response.success() and len(response.entries) > 0:
+                entry = response.entries[0]
 
-            if 'resource' in entry:
-                entry = entry['resource']
-            vs = entry
+                if 'resource' in entry:
+                    entry = entry['resource']
+                vs = entry
 
-            for coding in vs['expansion']['contains']:
-                self.codings[coding['code']] = coding
-                self.observations[coding['code']] = 0
+                for coding in vs['expansion']['contains']:
+                    self.codings[coding['code']] = coding
+                    self.observations[coding['code']] = 0
+            else:
+                print(response)
+                #pdb.set_trace()
+                print(f"There was an issue with the query: {valueset_ref}/$expand")
 
         # When you expand the valueset, the url is lost...
         response = client.get(valueset_ref)
@@ -305,6 +497,19 @@ class CodeableConceptSummary:
                 entry = entry['resource']
             
             self.valueset_url = entry['url']
+
+    def reset(self):
+        self.missing = 0 
+        self.non_missing = 0
+        for code in self.observations:
+            self.observations[code] = 0
+
+    def merge(self, other):
+        for code, count in other.observations.items():
+            self.observations[code] = count
+
+        self.missing += other.missing
+        self.non_missing += other.non_missing
 
     @property 
     def missing_count(self):
@@ -324,7 +529,6 @@ class CodeableConceptSummary:
 
             obj['validCodedValueSet']['reference'] = f"ValueSet/{resource['id']}"
         return obj
-
 
     def get_vocabulary(self, client):
         vocabulary = None
@@ -355,6 +559,19 @@ class CodeableConceptSummary:
                             vocabulary[url] = resource
         
         return vocabulary
+
+    def add_value(self, value):
+        if value in self.missing_encoding:
+            self.missing += 1
+        else:
+            if value in self.observations:
+                self.observations[value] += 1
+                self.non_missing += 1
+            else:
+                if value != "-":
+                    print(f"{value}: {self.observations.keys()}")
+                    #pdb.set_trace()
+                self.missing += 1
 
     def add_resource(self, resource):
         if 'valueCodeableConcept' in resource:
@@ -387,10 +604,15 @@ class CodeableConceptSummary:
         var_summary['component'].append(component)
 
 class ObservationDefinition:
-    def __init__(self, client, resource=None, identifier=None):
+    def __init__(self, client, resource=None, identifier=None, study_id=None, dataset_id=None, missing_encoding=set()):
+        """"""
         self.client = client
         self.resource_type = "ObservationDefinition"
         self.vocabulary = None
+        self.missing_encoding = missing_encoding
+
+        # The collection of data managers associated with a given phs id
+        self.study_summaries = {}
 
         if resource is None:
             if identifier is None:
@@ -406,11 +628,49 @@ class ObservationDefinition:
         self.id = resource['id']
         self.identifier = resource['identifier'][0]
         self.code = CodeableConcept(resource['code'])
+        self.colname = fix_fieldname(self.code.value)
         self.name_prefix = f"{self.identifier['value']}-VariableSummary"
         self.init_data_manager()
         self.valid_observation_count = 0
+        self.invalid_values = set()
+        self.observed_values = set()
 
         self.remote_ref = None
+
+    def summarize_row(self, row):
+        """Row is a dictionary where the keys are cleaned headers for the """
+        """data table. Each key should be lower case with now whitespace """
+        """and matching columns should match exactly the OD's code after """
+        """similarly cleaning the code"""
+        recognized_colname = None
+        self.valid_observation_count = 0
+        if self.colname in row:
+            recognized_colname = self.colname
+            try:
+                self.data_manager.add_value(row[self.colname])
+                self.valid_observation_count += 1
+            except:
+                #print(f"Invalid value: {row[self.colname]}")
+                try:
+                    self.invalid_values.add(row[self.colname])
+                except:
+                    self.invalid_values.add(f"Value at {self.colname} can't be added to a set")
+
+        """Return the column name if it is present in the row so that we """
+        """can track what was and wasn't summarized. """
+        return recognized_colname
+    
+    def commit_to_phsid(self, phsid):
+        if phsid is not None:
+            if phsid not in self.study_summaries:
+                self.study_summaries[phsid] = self.data_manager
+            else:
+                self.study_summaries[phsid].merge(self.data_manager)
+
+        self.init_data_manager()
+
+    def reset(self):
+        self.data_manager.reset()
 
     @property
     def type_name(self):
@@ -428,14 +688,17 @@ class ObservationDefinition:
     def source_identifier(self):
         return f"{self.identifier['system']}|{self.identifier['value']}"
 
-    def objectify(self, remote_host=None):
+    def objectify(self, remote_host=None, phsid=None):
         obj = {}
 
         for prop in ['meta', 'identifier', 'code', 'permittedDataType', 'validCodedValueSet', 'quantitativeDetails', 'qualifiedInterval', 'resourceType', 'category']:
             if prop in self.resource:
                 obj[prop] = deepcopy(self.resource[prop])
         if remote_host is not None:
-            obj = self.data_manager.update_obj(obj, remote_host=remote_host)
+            if phsid is None:
+                obj = self.data_manager.update_obj(obj, remote_host=remote_host)
+            elif phsid in self.study_summaries:
+                obj = self.study_summaries[phsid].update_obj(obj, remote_host=remote_host)
         return obj
 
 
@@ -506,15 +769,27 @@ class ObservationDefinition:
 
             self.init_data_manager()
 
-    def build_summary(self, remote_host):
+    def build_summary(self, remote_host, study_id, study_name, focus):
         variable_summary = None
         if self.valid_observation_count > 0:
-            vs = VariableSummary(self.name_prefix, population=self.population, code=self.code)
+            vs = VariableSummary(study_id, 
+                                 study_name, 
+                                 self.name_prefix, 
+                                 population=self.population, 
+                                 code=self.code,
+                                 focus=focus)
             variable_summary = vs.objectify()
-            variable_summary['subject'] = {
-                'reference': self.population.remote_reference(remote_host)
-            }
-            self.data_manager.summarize(variable_summary)
+
+            if self.population is not None:
+                variable_summary['subject'] = {
+                    'reference': self.population.remote_reference(remote_host)
+                }
+            if study_name is not None:
+                self.data_manager.summarize(variable_summary)
+                self.commit_to_phsid(study_id)
+
+            elif study_id in self.study_summaries:
+                self.study_summaries[study_id].summarize(variable_summary)
 
         return variable_summary
 
@@ -525,16 +800,17 @@ class ObservationDefinition:
             if 'validCodedValueSet' not in self.resource:
                 print(f"The OD {self.identifier['value']} is labeled as to accept codes as values, but doesn't have the validCodedValueSet")
                 print("Using DefaultSummary instead of CodeableConcept")
-                self.data_manager = DefaultSummary(permittedDataTypes)
+                self.data_manager = DefaultSummary(permittedDataTypes, missing_encoding=self.missing_encoding)
             else:
-                self.data_manager = CodeableConceptSummary(self.client, self.resource['validCodedValueSet']['reference'], permittedDataTypes)
+                self.data_manager = CodeableConceptSummary(self.client, self.resource['validCodedValueSet']['reference'], permittedDataTypes, missing_encoding=self.missing_encoding)
         elif "Quantity" in permittedDataTypes:
-            self.data_manager = QuantitySummary(permittedDataTypes)
+            self.data_manager = QuantitySummary(permittedDataTypes, missing_encoding=self.missing_encoding)
         elif "string" in permittedDataTypes:
-            self.data_manager = DefaultSummary(permittedDataTypes)
+            self.data_manager = DefaultSummary(permittedDataTypes, missing_encoding=self.missing_encoding)
         elif "dateTime" in permittedDataTypes:
-            self.data_manager = DateTimeSummary(permittedDataTypes)
+            self.data_manager = DateTimeSummary(permittedDataTypes, missing_encoding=self.missing_encoding)
         else:
             print(f"No familiar data types found in {permittedDataTypes}. Using default (string)")
-            self.data_manager = DefaultSummary(permittedDataTypes)
+            pdb.set_trace()
+            self.data_manager = DefaultSummary(permittedDataTypes, missing_encoding=self.missing_encoding)
         

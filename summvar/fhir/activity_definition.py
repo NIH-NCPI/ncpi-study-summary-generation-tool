@@ -14,13 +14,20 @@ import pdb
 
 import sys
 
+from collections import namedtuple
+
+# Just a simple way to deal with returns from the AD summary
+# - unrecognized indicate which columns weren't matched to the header
+# - unseen indicate which columns from the header weren't encountered
+SummaryResult = namedtuple("SummaryResult", ["summaries", "recognized", "unrecognized", "unseen"])
+
 class ActivityDefinition:
-    def __init__(self, client, resource=None, identifier=None):
+    def __init__(self, client, resource=None, identifier=None, missing=set()):
         self.client = client
         self.resource_type = "ActivityDefinition"
         self.observation_definitions = []
         self.vocabulary = None
-
+        self.missing_encoding = missing
 
         if resource is None:
             if identifier is None:
@@ -41,6 +48,57 @@ class ActivityDefinition:
         if 'observationResultRequirement' in resource:
             for od in resource['observationResultRequirement']:
                 self.od_refs.append(od['reference'])
+
+    @property
+    def table_name(self):
+        assert(len(self.resource['identifier']) == 1)
+        return self.identifier['value']
+
+    def reset(self):
+        for od in self.observation_definition:
+            od.reset()
+
+    """There are a few things we need to track:
+       - Which columns were successfully consumed
+       - Which columns were not
+       - various summary results
+    """
+    def summarize_rows(self, tabular_data, study_id, study_name, focus):
+        columns_expected = set()
+        columns_observed = set()
+        summaries = []
+
+        # We may not have loaded them yet, so this will force them to have been
+        # loaded into memory
+        obs_definitions = self.get_observation_definitions()
+        for row in tabular_data:
+            for od in obs_definitions:
+                colname = od.summarize_row(row)
+                columns_expected.add(colname)
+                if colname is not None:
+                    columns_observed.add(colname)
+        
+        for od in obs_definitions:
+            summary = od.build_summary(self.client, study_id, study_name, focus=focus)
+            if summary:
+                if len(summary['component']) > 0:
+                    summaries.append(summary)
+                else:
+                    print(f"Incomplete summary found: {summary['valueCodeableConcept']['coding'][0]['code']} @ {self.identifier['value']}")
+        # Identify which columns didn't match
+        # Is it safe to assume each row will have the same keys? It seems
+        # reasonable, but I don't know if it's true
+        unrecognized = set()
+
+        if len(tabular_data) > 0:
+            unrecognized = set(tabular_data[0].keys()) - columns_observed
+        unseen_columns = columns_expected - columns_observed
+        
+        return SummaryResult(summaries=summaries, 
+                             recognized=list(columns_observed),
+                             unrecognized=unrecognized, 
+                             unseen=unseen_columns)
+
 
     def objectify(self, min=False, remote_host=None):
         obj = {}
@@ -84,7 +142,6 @@ class ActivityDefinition:
     def title(self):
         return self.resource['title']
 
-
     @property
     def reference(self):
         return f"{self.resource_type}/{self.id}"
@@ -106,6 +163,8 @@ class ActivityDefinition:
         return self.vocabulary
 
     def get_observation_definitions(self, force=False):
+        """Realize the observation definitions based on the references from """
+        """the AD body"""
         if force or len(self.observation_definitions) == 0:
             self.url = None
             for od in self.od_refs:
@@ -123,11 +182,12 @@ class ActivityDefinition:
                                 pprint(entry)
                                 pdb.set_trace()
                             self.url = entry['code']['coding'][0]['system']
-                    self.observation_definitions.append(ObservationDefinition(self.client, resource=entry))
+                    self.observation_definitions.append(ObservationDefinition(self.client, resource=entry, missing_encoding=self.missing_encoding))
 
         return self.observation_definitions
 
     def pull_details(self, identifier):
+        """Pull the activity definition information from the FHIR server"""
         url = f"{self.resource_type}?identifier={identifier}"
 
         # We should be able to support pulling by reference
