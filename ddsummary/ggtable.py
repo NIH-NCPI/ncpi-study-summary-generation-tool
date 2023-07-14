@@ -15,7 +15,6 @@ class GoogleTable:
     def __init__(self, title, key_source="JSON"):
         self.title = title
         if key_source == "JSON":
-            print(f"Using the keyfile: {GoogleTable.default_keyfile}")
             self.key_file = GoogleTable.default_keyfile
 
             scopes = [
@@ -25,11 +24,9 @@ class GoogleTable:
             self.creds = ServiceAccountCredentials.from_json_keyfile_name(self.key_file, scopes)
             self.google_doc = gspread.authorize(self.creds)
             try:
-                print(f"Opening the document: {title}")
                 # If the doc exists, let's open it
                 self.doc = self.google_doc.open(title)
             except:
-                print(f"Attempting to create a document: {title}")
                 self.doc = self.google_doc.create(title)
                 # https://docs.gspread.org/en/latest/api/models/spreadsheet.html#gspread.spreadsheet.Spreadsheet.share
                 self.doc.share('eric.s.torstenson@vumc.org', perm_type='user', role='owner')
@@ -77,13 +74,11 @@ class GoogleTable:
 
     def reset_sheet(self, worksheet_name, data):
         """Delete existing worksheet data and replace it with whatever is in data"""
-        print(f"Worksheet: {worksheet_name}")
         worksheet = self.doc.worksheet(worksheet_name)
         row_count = len(data) 
         col_count = len(data['_header_'])
 
         data_chunk = [data['_header_']]
-        print(f"Replacing [red]{worksheet_name}[/red] with [blue]{row_count}[/blue] rows: Columns {data_chunk[0]}")
         for k,v in data.items():
             # header has already been written to the data_chunk
             if k != '_header_':

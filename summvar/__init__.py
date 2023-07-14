@@ -47,7 +47,6 @@ def study_id(consortium, study_id, dataset_name):
     if dataset_name is not None:
         id.append(dataset_name)
 
-    print(id)
     return ".".join([x.replace('-', '.').replace("_", ".") for x in id])
 
 def create_study_group(study, dataset_name, member_count=0):

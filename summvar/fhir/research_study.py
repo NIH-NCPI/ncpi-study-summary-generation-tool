@@ -56,7 +56,6 @@ class ResearchStudy:
             sys.exit(1)
         response = response['response']
         self.remote_ref = f"{self.resource_type}/{response['id']}"
-        print(f"Study: {self.remote_ref}")
         return resource
 
     def get_groups(self):
@@ -97,7 +96,6 @@ class ResearchStudy:
                 enrollment = deepcopy(self.resource['enrollment'])
 
             if len(enrollment) > 0:
-                print(enrollment)
                 obj['enrollment'] = enrollment
         
         return obj
@@ -165,7 +163,6 @@ class ResearchStudy:
         url = f"{self.resource_type}?identifier={identifier}"
 
         # We should be able to support pulling by reference
-        print(identifier)
         if identifier.split("/")[0] == self.resource_type:
             url = identifier
         response = self.client.get(url)

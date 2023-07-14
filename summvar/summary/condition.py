@@ -143,7 +143,6 @@ class ConditionSummary:
 def summarize(client, name_prefix, patient_refs, group_ref, profile=None):
     observations = {}
     for ref in patient_refs:
-        #pdb.set_trace()
         entry_count = 0
         query = f"Condition?subject={ref}"
         if _tag_code is not None:

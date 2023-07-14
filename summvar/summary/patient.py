@@ -159,7 +159,6 @@ class EthSummary:
             }
 
     def add_reference(self, resource):
-        #pdb.set_trace()
         if 'extension' in resource:
             for extension in resource['extension']:
                 if extension['url'] == ETH_URL:
@@ -284,7 +283,6 @@ class GenderSummary:
         }
 
     def add_reference(self, resource):
-        #pdb.set_trace()
         if 'gender' in resource:
             gender = resource['gender']
             self.gender[gender].add(f"Patient/{resource['id']}")
@@ -363,7 +361,6 @@ def summarize(client, name_prefix, patient_refs, group_ref):
     eths = EthSummary(name_prefix, group_ref, len(patient_refs))
     races = RaceSummary(name_prefix, group_ref, len(patient_refs))
     for ref in patient_refs:
-        #pdb.set_trace()
         response = client.get(ref)
         if response.success():
             for entry in response.entries:

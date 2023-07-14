@@ -64,7 +64,6 @@ class Group:
         response = response['response']
 
         self.remote_ref = f"{self.resource_type}/{response['id']}"
-        print(f"\tGroup: {self.remote_ref}")
         return response
 
     def remote_reference(self, remote_host):

@@ -38,7 +38,6 @@ class VariableSummary:
         if len(value) > 150:
             value = value[0:150]
 
-        print(f"The Focus: {self.focus}")
         return_value = {
             'resourceType': 'Observation',
             'meta': {

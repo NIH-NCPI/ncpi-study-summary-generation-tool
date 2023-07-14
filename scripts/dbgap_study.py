@@ -77,7 +77,6 @@ class DbGaPStudy:
             if 'ConsentGroups' in configuration:
                 self.consent_groups = configuration['ConsentGroups']
             else:
-                print(configuration)
                 self.consent_groups = ""
         else:
             raise InvalidStudyID(phsid)
