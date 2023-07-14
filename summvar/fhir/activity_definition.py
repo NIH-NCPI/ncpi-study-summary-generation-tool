@@ -19,7 +19,11 @@ from collections import namedtuple
 # Just a simple way to deal with returns from the AD summary
 # - unrecognized indicate which columns weren't matched to the header
 # - unseen indicate which columns from the header weren't encountered
-SummaryResult = namedtuple("SummaryResult", ["summaries", "recognized", "unrecognized", "unseen"])
+SummaryResult = namedtuple("SummaryResult", ["summaries", 
+                                             "recognized", 
+                                             "unrecognized", 
+                                             "unseen",
+                                             "enums"])
 
 class ActivityDefinition:
     def __init__(self, client, resource=None, identifier=None, missing=set()):
@@ -71,6 +75,8 @@ class ActivityDefinition:
         # We may not have loaded them yet, so this will force them to have been
         # loaded into memory
         obs_definitions = self.get_observation_definitions()
+        enum_report = {}
+
         for row in tabular_data:
             for od in obs_definitions:
                 colname = od.summarize_row(row)
@@ -79,12 +85,14 @@ class ActivityDefinition:
                     columns_observed.add(colname)
         
         for od in obs_definitions:
+            rpt = od.report_on_enumerations()
+            if len(rpt) > 0:
+                enum_report[od.code.code] = rpt
             summary = od.build_summary(self.client, study_id, study_name, focus=focus)
             if summary:
                 if len(summary['component']) > 0:
                     summaries.append(summary)
-                else:
-                    print(f"Incomplete summary found: {summary['valueCodeableConcept']['coding'][0]['code']} @ {self.identifier['value']}")
+                
         # Identify which columns didn't match
         # Is it safe to assume each row will have the same keys? It seems
         # reasonable, but I don't know if it's true
@@ -93,12 +101,13 @@ class ActivityDefinition:
         if len(tabular_data) > 0:
             unrecognized = set(tabular_data[0].keys()) - columns_observed
         unseen_columns = columns_expected - columns_observed
+
         
         return SummaryResult(summaries=summaries, 
                              recognized=list(columns_observed),
-                             unrecognized=unrecognized, 
-                             unseen=unseen_columns)
-
+                             unrecognized=list(unrecognized), 
+                             unseen=list(unseen_columns),
+                             enums=enum_report)
 
     def objectify(self, min=False, remote_host=None):
         obj = {}

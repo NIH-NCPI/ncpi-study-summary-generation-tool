@@ -86,10 +86,8 @@ class QuantityVariable:
 
     def mean(self):
         try:
-            print(f"SUM: {self.sum} / {self.count}=")
             mean =  self.sum / self.count
             if mean == mean:
-                print(mean)
                 rval = {
                     'value': mean
                 }
@@ -102,7 +100,6 @@ class QuantityVariable:
                 if self.unit_system is not None:
                     rval['system'] = self.unit_system
             else:
-                print("NAN!!!!")
                 rval = None
         except:
             rval = None
@@ -209,6 +206,10 @@ class DefaultSummary:
 
     def update_obj(self, obj, remote_host):
         return obj
+    
+    def report_on_enumerations(self):
+        return {}
+    
 
 class DateTimeSummary:
     def __init__(self, permittedDataTypes, missing_encoding):
@@ -253,7 +254,6 @@ class DateTimeSummary:
         if '_valueDateTime' in resource:
             ext = resource['_valueDateTime']
 
-            #pdb.set_trace()
             offset = ext['extension'][0]['extension'][3]['valueDuration']['value']
             self.observed_data[offset] += 1
             self.total_nonmissing += 1
@@ -291,6 +291,10 @@ class DateTimeSummary:
 
     def update_obj(self, obj, remote_host):
         return obj
+    
+    def report_on_enumerations(self):
+        return {}
+    
 class QuantitySummary:
     def __init__(self, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
@@ -374,7 +378,6 @@ class QuantitySummary:
             self.missing += 1
 
     def summarize(self, var_summary):
-        #pdb.set_trace()
         if self.codeableconcept is not None:
             cc = self.codeableconcept
             if 'coding' in cc:
@@ -439,20 +442,24 @@ class QuantitySummary:
 
     def update_obj(self, obj, remote_host):
         return obj
-
+    def report_on_enumerations(self):
+        return {}
+    
 class CodeableConceptSummary:
     def __init__(self, client, valueset_ref, permittedDataTypes, missing_encoding):
         self.permittedDataTypes = permittedDataTypes
         self.codings = {}
         self.observations = defaultdict(int)
+        self.invalid_observations = defaultdict(int)
         self.missing = 0 
         self.non_missing = 0
         self.missing_encoding = missing_encoding
 
-        #print(valueset_ref)
-        #pdb.set_trace()
         self.valueset_ref = valueset_ref
         self.type_name = "CodeableConcept"
+
+        self.observed_enumerations = set()
+        self.unexpected_enumerations = set()
 
         response = client.get(f"{valueset_ref}/$expand", except_on_error=False)
 
@@ -462,12 +469,12 @@ class CodeableConceptSummary:
             response = client.get(f"{valueset_ref}")
             if response.success():
                 for entry in response.entries:
-                    #pdb.set_trace()
+
                     for include in entry['compose']['include']:
                         system = include['system']
                         resp2 = client.get(f"CodeSystem?url={system}")
                         if resp2.success():
-                            #print(resp2.entries[0])
+
                             for coding in resp2.entries[0]['resource']['concept']:
                                 coding['system'] = system
                                 self.codings[coding['code']] = coding
@@ -484,10 +491,6 @@ class CodeableConceptSummary:
                 for coding in vs['expansion']['contains']:
                     self.codings[coding['code']] = coding
                     self.observations[coding['code']] = 0
-            else:
-                print(response)
-                #pdb.set_trace()
-                print(f"There was an issue with the query: {valueset_ref}/$expand")
 
         # When you expand the valueset, the url is lost...
         response = client.get(valueset_ref)
@@ -569,9 +572,29 @@ class CodeableConceptSummary:
                 self.non_missing += 1
             else:
                 if value != "-":
-                    print(f"{value}: {self.observations.keys()}")
+                    #print(f"{value}: {self.observations.keys()}")
+                    #print(f"No match found for enumeration, {value}")
+                    self.invalid_observations[value] += 1
                     #pdb.set_trace()
                 self.missing += 1
+
+    def report_on_enumerations(self):
+        report = {}
+        all_observed = set(self.observations.keys())
+        all_expected = set(self.codings.keys())
+        report["observed_enums"] = {}
+        for code in all_expected & all_observed:
+            report["observed_enums"][code] = self.observations[code]
+        
+        report["missed_enums"] = {}
+        for code in all_expected - all_observed:
+            report['missed_enums'][code] = self.observations[code]
+
+        report['unexpected_enums'] = {}
+        for code in self.invalid_observations: #all_observed - all_expected:
+            report['unexpected_enums'][code] = self.invalid_observations[code]
+
+        return report
 
     def add_resource(self, resource):
         if 'valueCodeableConcept' in resource:
@@ -650,7 +673,6 @@ class ObservationDefinition:
                 self.data_manager.add_value(row[self.colname])
                 self.valid_observation_count += 1
             except:
-                #print(f"Invalid value: {row[self.colname]}")
                 try:
                     self.invalid_values.add(row[self.colname])
                 except:
@@ -659,6 +681,9 @@ class ObservationDefinition:
         """Return the column name if it is present in the row so that we """
         """can track what was and wasn't summarized. """
         return recognized_colname
+    
+    def report_on_enumerations(self):
+        return self.data_manager.report_on_enumerations()
     
     def commit_to_phsid(self, phsid):
         if phsid is not None:
@@ -718,7 +743,6 @@ class ObservationDefinition:
         return response
 
     def remote_reference(self, remote_host):
-        #pdb.set_trace()
         if self.remote_ref is None:
             resource = self.load(remote_host)
             self.remote_ref = f"{self.resource_type}/{resource['id']}"
@@ -794,6 +818,7 @@ class ObservationDefinition:
         return variable_summary
 
     def init_data_manager(self):
+        #pdb.set_trace()
         permittedDataTypes = self.resource['permittedDataType']
         self.population = None
         if "CodeableConcept" in permittedDataTypes:
