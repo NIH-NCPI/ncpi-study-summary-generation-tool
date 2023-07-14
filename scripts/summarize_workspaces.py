@@ -15,6 +15,7 @@ from summvar.data_dictionary import StudyDictionary
 from pathlib import Path
 from argparse import ArgumentParser, FileType
 from yaml import safe_load
+import json
 
 from dbgap_study import DbGaPStudy, InvalidStudyID
 
@@ -130,7 +131,6 @@ def exec(argv=None):
     # Identify the hosts we can choose from
     print("Summarize Workspaces")
     hostsfile = Path(getenv("FHIRHOSTS", 'fhir_hosts'))
-    print(f"Hosts file, {hostsfile}")
     config = safe_load(hostsfile.open("rt"))
     env_options = config.keys()
 
@@ -158,12 +158,19 @@ def exec(argv=None):
                 help="Log resources and their status code/error message to a "
                     "JSON. If not provided, the log will be created inside "
                     "log/ based on the project name.")
+    parser.add_argument("--report",
+                help="Log correlations between each workspace and the data-"
+                     "dictionary including missing tables, unexpected table "
+                     "names and variables. ")
 
     args = parser.parse_args()
 
     # We'll send this to the client to 
     if args.resource_log is None:
         args.resource_log = f"log/{args.project.lower().replace(' ', '_')}-{args.host}.json"
+    
+    if args.report is None:
+        args.report = f"log/consensus-report-{args.project.lower()}.json"
     
     logpath = Path(args.resource_log)
     logpath.parent.mkdir(parents=True, exist_ok=True)
@@ -177,9 +184,7 @@ def exec(argv=None):
     if args.project == "GREGoR Summary Details":
         args.missing.add("NA")
 
-    print(args)
     cache_remote_ids = RIdCache()
-    print(f"Connecting to fhir server: ")
     fhir_host = FhirClient(config[args.host], idcache=cache_remote_ids, cmdlog=args.resource_log)
     print(f"Connected to the host, {args.host}.")
 
@@ -204,6 +209,7 @@ def exec(argv=None):
 
     # These are the aggregates for the DbGAP accession sub-studies
     study_summaries = {}
+    study_problems = {}
     for wkspc in workspaces:
         ws = wkspc['workspace']
         wsname = ws['name']
@@ -345,9 +351,7 @@ def exec(argv=None):
                 # they don't include a mix of Snake Case and Humpback case, 
                 # fortunately. 
 
-                print(f"Table Name: {table_name}")
-                print(f"WS Name: {wsname}")
-                print(f"WS Namespace: {wsnamespace}")
+                print(f"Workspace: {table_name}\t{wsnamespace}:{wsname}")
 
                 if type(schema[table_name]) is dict:
                     id_name = get_id_name_from_workspace(schema[table_name])
@@ -357,15 +361,23 @@ def exec(argv=None):
                                                 fapi.get_entities(wsnamespace, 
                                                     wsname,
                                                     table_name).json())
-                    print(f"{wsnamespace}|{wsname}.{table_name} {len(table_data[table_name])}")
                 else:
                     print(schema[table_name])
                     #pdb.set_trace()
                     print("There is a list instead of a dictionary....")
             
-            summaries = data_dictionaries[cns['name']].summarize(wkspace.phs_id, wsnamespace, wsname, table_data, focus=f"ResearchStudy/{study_fhir_id}")
+            summaries, unrecognized_tables = data_dictionaries[cns['name']].summarize(wkspace.phs_id, wsnamespace, wsname, table_data, focus=f"ResearchStudy/{study_fhir_id}")
+            study_problems[wsname] = {
+                "recognized_tables": {},
+                "unrecognized_tables": unrecognized_tables
+            }
             for table_name in summaries:
                 print(f"Loading {len(summaries[table_name].summaries)} for table, {table_name}. ")
+                study_problems[wsname][table_name] = {}
+                study_problems[wsname][table_name]["recognized_variables"] = summaries[table_name].recognized
+                study_problems[wsname][table_name]['unrecognized_variables'] = summaries[table_name].unrecognized
+                study_problems[wsname][table_name]['unseen_variables'] = summaries[table_name].unseen
+                study_problems[wsname][table_name]['enumerations'] = summaries[table_name].enums
                 for summary in summaries[table_name].summaries:
                     try:
                         
@@ -384,16 +396,19 @@ def exec(argv=None):
                         print("----------------------------------")
                         pdb.set_trace()
                         print("Well, there was an exception")
-            #print(summaries.keys())
-            #pdb.set_trace()
-            #print(summaries)
+
+    reportpath = Path(args.report)
+    reportpath.parent.mkdir(parents=True, exist_ok=True)
+    reportpath.write_text(json.dumps(study_problems, sort_keys=True, indent=2))
+    print(f"Summary details written to log: {reportpath}")
+
     # Now, we should have complete summaries at the phsid level
     for phsid, (cns, study_system) in study_summaries.items():
         # Let's make sure each of our summary observations have the correct
         # tag associated with it
         InitMetaTag(study_system, phsid)
         #pdb.set_trace()
-        summaries = data_dictionaries[cns].summarize(phsid, None, None, None, focus=f"ResearchStudy/{phsid}")
+        summaries, unrecognized_tables = data_dictionaries[cns].summarize(phsid, None, None, None, focus=f"ResearchStudy/{phsid}")
 
         for table_name in summaries:
             print(f"Loading {len(summaries[table_name].summaries)} for table, {phsid}:{table_name}. ")
