@@ -65,7 +65,7 @@ class Workspace:
                 try:
                     return int(wsdetail['attributes'].get('library:numSubjects'))
                 except:
-                    print(f"Bad numSubjects: {wsdetail['attributes'].get('library:numSubjects')}")
+                    print(f"Invalid value for {self.name}'s numSubjects: '{wsdetail['attributes'].get('library:numSubjects')}'")
                     #pdb.set_trace()
                     return 0
 

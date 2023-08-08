@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 
+from collections import defaultdict
+
 import firecloud.api as fapi
 
-from ddsummary.ggsummary import GSummary
+#from ddsummary.ggsummary import GSummary
+from ddsummary.yamlcfg import SummaryConfig
 from ddsummary.workspace import Workspace
 
 import re
+import sys
 
 import pdb
 
@@ -22,6 +26,9 @@ from dbgap_study import DbGaPStudy, InvalidStudyID
 from summvar.fhir import MetaTag, InitMetaTag
 
 from rich import print
+from rich.console import Console
+from rich.table import Table
+from rich.progress import track
 
 from ddsummary.anvil_sources import get_workspaces
 from summvar.fhir.activity_definition import ActivityDefinition
@@ -99,24 +106,77 @@ def prep_data(table_name, id_name, table_data):
 
     updated_data = []
 
+    #pdb.set_trace()
+    #if table_name == "aligned_dna_short_read_set":
+    #    pdb.set_trace()
+
     for row in table_data:
-        idname = clean_varname(id_name)
+        idname = clean_varname(id_name) + "_id"
 
         name = get_id_name_from_workspace(row)
 
+        newrows = []
         newrow = {
             idname: name
         }
+        newrows_as_list = defaultdict(list)
         try:
+            was_complex = False
             for origcolname, value in row['attributes'].items():
-                colname = clean_varname(origcolname)
-                if colname is not None:
-                    newrow[colname] = value
-                    header_lookup[colname] = origcolname
+                colname = clean_varname(origcolname) + "_id"
 
-            updated_data.append(newrow)
-        except:
+                #if colname == "aligned_dna_short_read_set":
+                #    pdb.set_trace()
+                # check for complex data
+                if type(value) is dict:
+                    if value.get('itemsType') == "EntityReference":
+                        was_complex = True
+                        #pdb.set_trace()
+                        rows = []
+
+                        for item in value['items']:
+                            colid = clean_varname(item['entityType']) + '_id'
+                            item_obj = {
+                                idname: name,
+                                f"{colid}": item['entityName'] 
+                            }
+                            newrows_as_list[colid].append(item['entityName'])
+                            newrows.append(item_obj)
+                else:
+                    if colname is not None:
+                        if was_complex and len(newrows) > 0:
+                            if len(newrows_as_list) == 1:
+                                # For now, we'll transform the singular column
+                                # a pipe separated list. 
+                                key = list(newrows_as_list.keys())[0]
+                                value = "|".join(newrows_as_list[key])
+                                # To avoid treating the newly minted rows as
+                                # the real data, we'll clear them out. 
+                                newrows = []
+                            else:
+                                print("OK. We probably shouldn't be here")
+                                pdb.set_trace()
+                                print(f"{colname}:{value}")
+                        newrow[colname] = value
+                        header_lookup[colname] = origcolname
+
+            if len(newrows) > 0:
+                for nr in newrows:
+                    updated_data.append(nr)
+                if len(newrow) > 1:
+                    print("-----")
+                    print(row)
+                    print(f"----- {len(newrows)}")
+                    print(newrows)
+                    print(f"----- {len(newrow)}")
+                    print(newrow)
+                    print("\nWe shouldn't have both complex data and simple data....should we?")
+                    pdb.set_trace()
+            else:
+                updated_data.append(newrow)
+        except Exception as e:
             print(f"A Problem was encountered with ATTRIBUTES: {row}")
+            print(e)
 
     return updated_data, header_lookup
 
@@ -141,11 +201,17 @@ def exec(argv=None):
                 help=f"FHIR server that contains meta-data resources and will "
                         "be the destination of the summary data")
 
+    """
     parser.add_argument("--project",
                 choices=["AnVIL Summary Details",
                          "GREGoR Summary Details"],
                 default="AnVIL Summary Details",
                 help="Google Sheet 'filename' configuration")
+    """
+    parser.add_argument("project",
+                        nargs="+",
+                        type=FileType('rt'),
+                        help="Project YAML file")
     
     parser.add_argument("--missing",
                 type=str,
@@ -167,37 +233,42 @@ def exec(argv=None):
 
     # We'll send this to the client to 
     if args.resource_log is None:
-        args.resource_log = f"log/{args.project.lower().replace(' ', '_')}-{args.host}.json"
+        if len(args.project) == 1:
+            args.resource_log = f"log/{args.project[0].name.lower().replace(' ', '_')}-{args.host}.json"
+        else:
+            print("You must provide --resource-log argument when summarizing "
+                  "more than one configuration.")
+            sys.exit(1)
     
     if args.report is None:
-        args.report = f"log/consensus-report-{args.project.lower()}.json"
-    
+        if len(args.project) > 1:
+            print("You must provide --report argument when summarizing more"
+                  "than one configuration.")
+            sys.exit(1)
+
+        args.report = f"log/consensus-report-{args.project[0].name.lower()}.json"
+
+
     logpath = Path(args.resource_log)
     logpath.parent.mkdir(parents=True, exist_ok=True)
 
-    if args.missing.strip() != "":  
-        args.missing = set(args.missing.split(","))
-    else:
-        args.missing = set()
-
-    # We know that GREGoR uses NA for all of it's missing data
-    if args.project == "GREGoR Summary Details":
-        args.missing.add("NA")
-
+    #pdb.set_trace()
     cache_remote_ids = RIdCache()
     fhir_host = FhirClient(config[args.host], idcache=cache_remote_ids, cmdlog=args.resource_log)
     print(f"Connected to the host, {args.host}.")
 
     #pdb.set_trace()
-    gsumm = GSummary(title=args.project)
-    print(f"Connected to Google sheets")
+    # gsumm = GSummary(title=args.project)
+    gsumm = SummaryConfig()
+    for prj in args.project:
+        gsumm.add_consortium(prj)
 
-    data_dictionaries = {}
+    data_dictionaries = {    }
+
     # The data-dictionaries should be accessible at the "consortium" tab
     for cid, consortium in gsumm.consortium.items():
-        if cid != "_header_":
-            data_dictionaries[consortium['name']] = StudyDictionary(fhir_host, consortium['tag'])
-            data_dictionaries[consortium['name']].load_activity_definitions(missing=args.missing)
+        data_dictionaries[cid] = StudyDictionary(fhir_host, consortium.tag)
+        data_dictionaries[cid].load_activity_definitions(missing=consortium.missing)
 
     print("Connecting to fire cloud to download workspace data")
     # The file used for this data chunk should be a bit more up to date
@@ -207,19 +278,29 @@ def exec(argv=None):
     workspaces = fapi.list_workspaces().json()
     print(f"{len(workspaces)} workspaces found.")
 
+    table = Table(title=f"Parsing Workspace data:")
+    table.add_column("Workspace Name", justify = "right", style="cyan")
+    table.add_column("Namespace", style='purple')
+    table.add_column("Tables", justify="left", style="yellow")
+
+
+
     # These are the aggregates for the DbGAP accession sub-studies
     study_summaries = {}
     study_problems = {}
-    for wkspc in workspaces:
+
+    for wkspc in track(workspaces, f"Parsing workspaces"):
+        #for wkspc in workspaces:
         ws = wkspc['workspace']
         wsname = ws['name']
         wsnamespace = ws['namespace']
         cns = gsumm.find_consortium(wsname)
 
         if cns is not None:
-            system_prefix(cns['system_prefix'])
             #pdb.set_trace()
-            wkspace = Workspace(cns['name'], wsnamespace, wsname, ws)
+            system_prefix(cns.system_prefix)
+            #pdb.set_trace()
+            wkspace = Workspace(cns.name, wsnamespace, wsname, ws)
 
             #pdb.set_trace()
             phs_id = None
@@ -253,7 +334,7 @@ def exec(argv=None):
                     group_ref = f"Group/{result['response']['id']}"
 
                     
-                    fhir_study = dbgstudy.for_fhir(cns['name'])
+                    fhir_study = dbgstudy.for_fhir(cns.name)
                     fhir_study['enrollment'] = [
                         {
                             "reference": group_ref
@@ -269,18 +350,23 @@ def exec(argv=None):
                         print(result)
                         pdb.set_trace()
                     study_identifier = fhir_study['identifier'][0]
-                    study_summaries[wkspace.phs_id] = (cns['name'], 
+                    study_summaries[wkspace.phs_id] = (cns.name, 
                                                     study_identifier['system'])
                     #pdb.set_trace()
                 except InvalidStudyID as e:
                     print(f"Workspace: {wsname} references invalid study id: {wkspace.phs_id}")
                     wkspace.phs_id = None
                     #pdb.set_trace()
+                except Exception as e:
+                    print(e)
+                    pdb.set_trace()
+                    print("An unexpected exception was encountered")
 
+            #pdb.set_trace()
             wkspace = gsumm.add_workspace(wkspace)
-            gsumm.add_study(wkspace)
+            cns.add_study(wkspace)
 
-
+            #pdb.set_trace()
             study_group = create_study_group(
                             study=wkspace.phs_id,
                             dataset_name=wsname,
@@ -299,7 +385,7 @@ def exec(argv=None):
             group_ref = f"Group/{result['response']['id']}"
 
             #research_study_id = study_id(cns['name'], phs_id, wsname)
-            fhir_study = create_dataset_study(cns['name'],
+            fhir_study = create_dataset_study(cns.name,
                                               study=wkspace.phs_id,
                                               dataset_name=wsname,
                                               title=None,
@@ -351,7 +437,7 @@ def exec(argv=None):
                 # they don't include a mix of Snake Case and Humpback case, 
                 # fortunately. 
 
-                print(f"Workspace: {table_name}\t{wsnamespace}:{wsname}")
+               
 
                 if type(schema[table_name]) is dict:
                     id_name = get_id_name_from_workspace(schema[table_name])
@@ -362,15 +448,17 @@ def exec(argv=None):
                                                     wsname,
                                                     table_name).json())
                 else:
-                    print(schema[table_name])
-                    #pdb.set_trace()
-                    print("There is a list instead of a dictionary....")
-            
-            summaries, unrecognized_tables = data_dictionaries[cns['name']].summarize(wkspace.phs_id, wsnamespace, wsname, table_data, focus=f"ResearchStudy/{study_fhir_id}")
+                    print(f"Invalid schema format: {schema[table_name]} is {type(schema[table_name])}, not dict. ")
+                    
+            table_names = ",".join(table_data.keys())
+            table.add_row(wsname, wsnamespace, table_names)
+            #print(f"Workspace: {wsname}\t{wsnamespace}:{table_names}")
+            summaries, unrecognized_tables = data_dictionaries[cns.name].summarize(wkspace.phs_id, wsnamespace, wsname, table_data, focus=f"ResearchStudy/{study_fhir_id}")
             study_problems[wsname] = {
                 "recognized_tables": {},
                 "unrecognized_tables": unrecognized_tables
             }
+            #pdb.set_trace()
             for table_name in summaries:
                 print(f"Loading {len(summaries[table_name].summaries)} for table, {table_name}. ")
                 study_problems[wsname][table_name] = {}
@@ -396,6 +484,9 @@ def exec(argv=None):
                         print("----------------------------------")
                         pdb.set_trace()
                         print("Well, there was an exception")
+
+    console = Console()
+    console.print(table, justify="center")
 
     reportpath = Path(args.report)
     reportpath.parent.mkdir(parents=True, exist_ok=True)
@@ -423,7 +514,7 @@ def exec(argv=None):
                 if result['status_code'] >= 300:
                     print(result)
                     pdb.set_trace()
-    gsumm.save_cfg()
+    #gsumm.save_cfg()
 if __name__ == '__main__':
     exec()
 

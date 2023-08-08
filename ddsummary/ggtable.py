@@ -20,12 +20,14 @@ class GoogleTable:
             scopes = [
                 'https://www.googleapis.com/auth/spreadsheets',
                 'https://www.googleapis.com/auth/drive'
-            ]            
+            ]          
+            pdb.set_trace()  
             self.creds = ServiceAccountCredentials.from_json_keyfile_name(self.key_file, scopes)
             self.google_doc = gspread.authorize(self.creds)
             try:
                 # If the doc exists, let's open it
                 self.doc = self.google_doc.open(title)
+                self.doc.share('eric.s.torstenson@vumc.org', perm_type='user', role='owner')
             except:
                 self.doc = self.google_doc.create(title)
                 # https://docs.gspread.org/en/latest/api/models/spreadsheet.html#gspread.spreadsheet.Spreadsheet.share
@@ -35,7 +37,7 @@ class GoogleTable:
             self.doc = self.creds.open(title)
             
         self.url = self.doc.url
-
+        pdb.set_trace()
         self.load_cfg()
 
     def load_table(self, 
@@ -45,6 +47,9 @@ class GoogleTable:
         """Load data from the google doc table into local dictionary cache"""
         data = {}
         header = None
+
+        print(f"The title: {title}")
+        pdb.set_trace()
         
         try:
             ws = self.doc.worksheet(title)

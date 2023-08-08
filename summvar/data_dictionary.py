@@ -8,8 +8,6 @@ import sys
 
 import pdb 
 
-
-
 class StudyDictionary:
     def __init__(self, client, tag):
         self.client = client
