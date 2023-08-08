@@ -1,0 +1,4 @@
+name: CCDG
+ws_prefix: AnVIL_CCDG
+system_prefix: https://www.genome.gov/Funded-Programs-Projects/NHGRI-Genome-Sequencing-Program/Centers-for-Common-Disease-Genomics/fhir
+tag: https://www.genome.gov/Funded-Programs-Projects/NHGRI-Genome-Sequencing-Program/Centers-for-Common-Disease-Genomics/fhir/researchstudy|CCDG_DD

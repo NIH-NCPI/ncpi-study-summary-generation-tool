@@ -1,0 +1,5 @@
+name: GREGoR
+ws_prefix: GREGOR_COMBINED_CONSORTIUM_U2
+system_prefix: https://gregorconsortium.org/fhir
+tag: https://gregorconsortium.org/fhir/researchstudy|GREGoR_DD
+missing: NA

@@ -1,0 +1,5 @@
+name: CMG
+ws_prefix: AnVIL_CMG
+system_prefix: https://mendelian.org/fhir
+tag: https://mendelian.org/fhir/researchstudy|CMG_DD
+
